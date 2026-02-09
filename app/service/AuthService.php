@@ -11,6 +11,23 @@ class AuthService
         $tgId = $from['id'];
         $user = TgUser::where('tg_id', $tgId)->find();
         if ($user) {
+            $updates = [];
+            $username = $from['username'] ?? '';
+            $firstName = $from['first_name'] ?? '';
+            $lastName = $from['last_name'] ?? '';
+            if ($user['username'] !== $username) {
+                $updates['username'] = $username;
+            }
+            if ($user['first_name'] !== $firstName) {
+                $updates['first_name'] = $firstName;
+            }
+            if ($user['last_name'] !== $lastName) {
+                $updates['last_name'] = $lastName;
+            }
+            if ($updates !== []) {
+                $user->save($updates);
+                return array_merge($user->toArray(), $updates);
+            }
             return $user->toArray();
         }
 
