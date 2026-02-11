@@ -14,3 +14,6 @@ ALTER TABLE `cert_orders`
 
 ALTER TABLE `cert_orders`
   MODIFY COLUMN `status` ENUM('created','dns_wait','dns_verified','issued','failed') NOT NULL DEFAULT 'created';
+
+ALTER TABLE `tg_users`
+  MODIFY COLUMN `apply_quota` INT UNSIGNED NOT NULL DEFAULT 0;
