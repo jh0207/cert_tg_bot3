@@ -1136,7 +1136,12 @@ class CertService
             $message .= "请添加 TXT 记录后点击「✅ 我已解析，开始验证」。\n";
             $txtValues = $this->getTxtValues($order);
             if (($order['txt_host'] ?? '') && $txtValues !== []) {
-                $message .= $this->formatTxtRecordBlock($order['domain'] ?? '', $order['txt_host'], $txtValues);
+                $message .= $this->formatTxtRecordBlock(
+                    $order['domain'] ?? '',
+                    $order['txt_host'],
+                    $txtValues,
+                    (string) ($order['cert_type'] ?? '')
+                );
             }
         } elseif ($status === 'dns_verified') {
             $message .= "\n\n✅ <b>状态：DNS 已验证</b>\n正在签发，请稍后刷新状态。";
@@ -1210,10 +1215,10 @@ class CertService
         return $buttons !== [] ? [$buttons] : null;
     }
 
-    private function formatTxtRecordBlock(string $domain, string $host, array $values): string
+    private function formatTxtRecordBlock(string $domain, string $host, array $values, string $certType = ''): string
     {
         $recordName = $this->normalizeTxtHost($domain, $host);
-        $displayHost = $this->getTxtHostDisplay($domain, $recordName);
+        $displayHost = $this->getTxtHostDisplay($domain, $recordName, $certType);
         $valueCount = count($values);
         $message = '';
         foreach ($values as $index => $value) {
@@ -1229,16 +1234,22 @@ class CertService
         } elseif ($valueCount === 1) {
             $message .= "✅ 当前仅需添加 <b>1</b> 条 TXT 记录。\n";
         }
-        $message .= "\n说明：主机记录只填 <b>{$displayHost}</b>，系统会自动拼接域名 {$domain}（完整记录为 {$recordName}）。";
+        if ($displayHost === $recordName) {
+            $message .= "\n说明：请按上方完整主机记录填写（<b>{$recordName}</b>）。";
+        } else {
+            $message .= "\n说明：主机记录只填 <b>{$displayHost}</b>，系统会自动拼接域名 {$domain}（完整记录为 {$recordName}）。";
+        }
         return $message;
     }
 
-    private function getTxtHostDisplay(string $domain, string $recordName): string
+    private function getTxtHostDisplay(string $domain, string $recordName, string $certType = ''): string
     {
         $domain = trim($domain);
         $recordName = trim($recordName);
+
         if ($domain !== '' && $recordName !== '') {
-            $suffix = '.' . $domain;
+            $displayBaseDomain = $this->resolveTxtDisplayBaseDomain($domain, $certType);
+            $suffix = '.' . $displayBaseDomain;
             if (substr($recordName, -strlen($suffix)) === $suffix) {
                 $host = rtrim(substr($recordName, 0, -strlen($suffix)), '.');
                 if ($host !== '') {
@@ -1248,6 +1259,28 @@ class CertService
         }
 
         return $recordName !== '' ? $recordName : '_acme-challenge';
+    }
+
+    private function resolveTxtDisplayBaseDomain(string $domain, string $certType = ''): string
+    {
+        $domain = trim($domain);
+        if ($domain === '') {
+            return '';
+        }
+
+        // 通配符证书输入已限制为主域名，直接使用。
+        if ($certType === 'wildcard') {
+            return $domain;
+        }
+
+        // 单域名证书：为了便于复制，展示相对主域名的主机记录。
+        // 例如：www.example.com -> _acme-challenge.www
+        $labels = explode('.', $domain);
+        if (count($labels) <= 2) {
+            return $domain;
+        }
+
+        return implode('.', array_slice($labels, -2));
     }
 
     private function buildDownloadFilesMessage($order): string
