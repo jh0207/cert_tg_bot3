@@ -1247,15 +1247,9 @@ class CertService
         $domain = trim($domain);
         $recordName = trim($recordName);
 
-        // 单域名证书经常使用子域名（如 www.example.com）。
-        // 此时若仍按完整 domain 截断，会错误地显示为与通配符相同的 _acme-challenge。
-        // 因此仅对通配符证书展示相对主机名，单域名证书优先展示完整主机记录。
-        if ($certType !== 'wildcard') {
-            return $recordName !== '' ? $recordName : '_acme-challenge';
-        }
-
         if ($domain !== '' && $recordName !== '') {
-            $suffix = '.' . $domain;
+            $displayBaseDomain = $this->resolveTxtDisplayBaseDomain($domain, $certType);
+            $suffix = '.' . $displayBaseDomain;
             if (substr($recordName, -strlen($suffix)) === $suffix) {
                 $host = rtrim(substr($recordName, 0, -strlen($suffix)), '.');
                 if ($host !== '') {
@@ -1265,6 +1259,28 @@ class CertService
         }
 
         return $recordName !== '' ? $recordName : '_acme-challenge';
+    }
+
+    private function resolveTxtDisplayBaseDomain(string $domain, string $certType = ''): string
+    {
+        $domain = trim($domain);
+        if ($domain === '') {
+            return '';
+        }
+
+        // 通配符证书输入已限制为主域名，直接使用。
+        if ($certType === 'wildcard') {
+            return $domain;
+        }
+
+        // 单域名证书：为了便于复制，展示相对主域名的主机记录。
+        // 例如：www.example.com -> _acme-challenge.www
+        $labels = explode('.', $domain);
+        if (count($labels) <= 2) {
+            return $domain;
+        }
+
+        return implode('.', array_slice($labels, -2));
     }
 
     private function buildDownloadFilesMessage($order): string
