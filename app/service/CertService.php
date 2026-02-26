@@ -1622,6 +1622,8 @@ class CertService
 
         $zip->addFromString('detail.txt', $this->buildCertificateBundleDetail());
 
+        $zip->addFromString('detail.txt', $this->buildCertificateBundleDetail());
+
         $zip->close();
         return $archiveName;
     }
