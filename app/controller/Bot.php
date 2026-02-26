@@ -470,16 +470,14 @@ class Bot
                 $this->telegram->sendMessage($chatId, $result['message'], $keyboard);
                 return;
             }
-
             if ($action === 'guide') {
-                $messageText = "📖 部署教程\n\n";
-                $messageText .= "综述\n";
-                $messageText .= "所有的证书文件都打包在ZIP压缩包文件里, 解压出来。里面的所有文件本质上都是文本, 可以通过文本编辑器(记事本, vscode, notepad, EditPlus, emeditor等等)直接读取打开。\n";
-                $messageText .= "主要文件\n";
-                $messageText .= "绝大部分的环境配置, 只需要用到以下两个文件即可。\n";
-                $messageText .= "private.pem：证书私钥, 可更改后缀为key。如果使用的是自己上传的CSR文件, 将不包含该文件。\n";
-                $messageText .= "fullchain.crt：完整的证书链, 可更改后缀为pem。文件里一般有两段证书(也会有三张), 一张是你的域名证书, 另一张是所依赖的证书链(可能会有两张证书链)。\n";
-                $messageText .= "其他文件";
+                $messageText = "📖 <b>部署教程</b>\n\n";
+                $messageText .= "<b>综述</b>\n";
+                $messageText .= "所有的证书文件都打包在ZIP压缩包文件里, 解压出来。里面的所有文件本质上都是文本, 可以通过文本编辑器(记事本, vscode, notepad, EditPlus, emeditor等等)直接读取打开。\n\n";
+                $messageText .= "<b>主要文件</b>\n";
+                $messageText .= "<b>绝大部分的环境配置, 只需要用到以下两个文件即可。</b>\n";
+                $messageText .= "<b>private.pem：证书私钥, 可更改后缀为key。如果使用的是自己上传的CSR文件, 将不包含该文件。</b>\n";
+                $messageText .= "<b>fullchain.crt：完整的证书链, 可更改后缀为pem。文件里一般有两段证书(也会有三张), 一张是你的域名证书, 另一张是所依赖的证书链(可能会有两张证书链)。</b>";
                 $this->telegram->sendMessage($chatId, $messageText);
                 return;
             }

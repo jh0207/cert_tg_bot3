@@ -1622,8 +1622,6 @@ class CertService
 
         $zip->addFromString('detail.txt', $this->buildCertificateBundleDetail());
 
-        $zip->addFromString('detail.txt', $this->buildCertificateBundleDetail());
-
         $zip->close();
         return $archiveName;
     }
@@ -1665,11 +1663,6 @@ class CertService
             '绝大部分的环境配置, 只需要用到以下两个文件即可。',
             'private.pem：证书私钥, 可更改后缀为key。如果使用的是自己上传的CSR文件, 将不包含该文件。',
             'fullchain.crt：完整的证书链, 可更改后缀为pem。文件里一般有两段证书(也会有三张), 一张是你的域名证书, 另一张是所依赖的证书链(可能会有两张证书链)。',
-            '其他文件',
-            'certificate.crt：单独的域名证书。',
-            'chain.crt：中间证书链(不含域名证书)。',
-            'public.pem：从证书提取出的公钥, 一般用于排障。',
-            'detail.txt：当前部署说明文件。',
         ];
 
         return implode("\n", $lines) . "\n";
