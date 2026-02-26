@@ -1293,6 +1293,7 @@ class CertService
         $archiveUrl = $this->buildDownloadUrl($order, $archiveName);
         $message = "下载压缩包：点击下载 ({$archiveUrl})\n";
         $message .= "复制链接：\n<pre>{$archiveUrl}</pre>";
+        $message .= "\n\n部署提示：压缩包内已包含 <b>detail.txt</b>，请先按文档中的文件映射关系再部署，避免证书链或私钥文件放错。";
         return $message;
     }
 
@@ -1589,7 +1590,11 @@ class CertService
         $archivePath = $exportPath . $archiveName;
         if (@is_file($archivePath)) {
             $archiveMtime = @filemtime($archivePath);
-            if ($archiveMtime !== false && $archiveMtime >= $latestMtime) {
+            if (
+                $archiveMtime !== false
+                && $archiveMtime >= $latestMtime
+                && $this->archiveContainsCompatibilityFiles($archivePath)
+            ) {
                 return $archiveName;
             }
         }
@@ -1603,8 +1608,104 @@ class CertService
             $zip->addFile($exportPath . $file, $file);
         }
 
+        // 兼容更多面板的一键部署命名，降低用户手工改名出错概率。
+        $compatibilityMap = [
+            'certificate.crt' => 'cert.cer',
+            'chain.crt' => 'ca.cer',
+            'fullchain.crt' => 'fullchain.cer',
+            'private.pem' => 'key.key',
+        ];
+        foreach ($compatibilityMap as $zipName => $sourceFile) {
+            $zip->addFile($exportPath . $sourceFile, $zipName);
+        }
+
+        $publicPem = $this->buildPublicKeyPem($exportPath . 'cert.cer');
+        if ($publicPem !== '') {
+            $zip->addFromString('public.pem', $publicPem);
+        }
+
+        $zip->addFromString('detail.txt', $this->buildCertificateBundleDetail());
+
         $zip->close();
         return $archiveName;
+    }
+
+    private function buildPublicKeyPem(string $certFile): string
+    {
+        if (!function_exists('openssl_pkey_get_public')) {
+            return '';
+        }
+
+        $certContent = @file_get_contents($certFile);
+        if ($certContent === false || $certContent === '') {
+            return '';
+        }
+
+        $public = @openssl_pkey_get_public($certContent);
+        if ($public === false) {
+            return '';
+        }
+
+        $details = openssl_pkey_get_details($public);
+        if (function_exists('openssl_pkey_free')) {
+            @openssl_pkey_free($public);
+        }
+
+        if (!is_array($details) || empty($details['key']) || !is_string($details['key'])) {
+            return '';
+        }
+
+        return $details['key'];
+    }
+
+    private function buildCertificateBundleDetail(): string
+    {
+        $lines = [
+            '证书部署说明（请严格按对应关系使用）',
+            '',
+            '一、推荐文件命名（面板常见）',
+            '- certificate.crt : 服务器证书（仅站点证书）',
+            '- chain.crt       : 中间证书链（CA Chain）',
+            '- fullchain.crt   : 站点证书 + 中间证书链（合并）',
+            '- private.pem     : 站点私钥（必须与本次证书匹配）',
+            '- public.pem      : 从证书提取的公钥（一般仅用于排障）',
+            '',
+            '二、原始文件（与上方一一对应）',
+            '- cert.cer      = certificate.crt',
+            '- ca.cer        = chain.crt',
+            '- fullchain.cer = fullchain.crt',
+            '- key.key       = private.pem',
+            '',
+            '三、部署建议（Nginx/Apache 通用）',
+            '- 优先使用 fullchain.crt + private.pem。',
+            '- 若面板要求分开上传证书与链：使用 certificate.crt + chain.crt + private.pem。',
+            '- 不要把 chain.crt 当作站点证书，也不要把 public.pem 当作私钥。',
+            '',
+            '四、快速自检',
+            '- 证书与私钥不匹配时，服务通常会报 SSL key mismatch。',
+            '- 若浏览器提示证书链不完整，请改用 fullchain.crt 或补齐 chain.crt。',
+        ];
+
+        return implode("\n", $lines) . "\n";
+    }
+
+    private function archiveContainsCompatibilityFiles(string $archivePath): bool
+    {
+        $zip = new \ZipArchive();
+        if ($zip->open($archivePath) !== true) {
+            return false;
+        }
+
+        $required = ['certificate.crt', 'chain.crt', 'fullchain.crt', 'private.pem', 'detail.txt'];
+        foreach ($required as $name) {
+            if ($zip->locateName($name) === false) {
+                $zip->close();
+                return false;
+            }
+        }
+
+        $zip->close();
+        return true;
     }
 
     private function getTxtValues($order): array
