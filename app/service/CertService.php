@@ -1136,7 +1136,12 @@ class CertService
             $message .= "请添加 TXT 记录后点击「✅ 我已解析，开始验证」。\n";
             $txtValues = $this->getTxtValues($order);
             if (($order['txt_host'] ?? '') && $txtValues !== []) {
-                $message .= $this->formatTxtRecordBlock($order['domain'] ?? '', $order['txt_host'], $txtValues);
+                $message .= $this->formatTxtRecordBlock(
+                    $order['domain'] ?? '',
+                    $order['txt_host'],
+                    $txtValues,
+                    (string) ($order['cert_type'] ?? '')
+                );
             }
         } elseif ($status === 'dns_verified') {
             $message .= "\n\n✅ <b>状态：DNS 已验证</b>\n正在签发，请稍后刷新状态。";
@@ -1210,10 +1215,10 @@ class CertService
         return $buttons !== [] ? [$buttons] : null;
     }
 
-    private function formatTxtRecordBlock(string $domain, string $host, array $values): string
+    private function formatTxtRecordBlock(string $domain, string $host, array $values, string $certType = ''): string
     {
         $recordName = $this->normalizeTxtHost($domain, $host);
-        $displayHost = $this->getTxtHostDisplay($domain, $recordName);
+        $displayHost = $this->getTxtHostDisplay($domain, $recordName, $certType);
         $valueCount = count($values);
         $message = '';
         foreach ($values as $index => $value) {
@@ -1229,16 +1234,22 @@ class CertService
         } elseif ($valueCount === 1) {
             $message .= "✅ 当前仅需添加 <b>1</b> 条 TXT 记录。\n";
         }
-        $message .= "\n说明：主机记录只填 <b>{$displayHost}</b>，系统会自动拼接域名 {$domain}（完整记录为 {$recordName}）。";
+        if ($displayHost === $recordName) {
+            $message .= "\n说明：请按上方完整主机记录填写（<b>{$recordName}</b>）。";
+        } else {
+            $message .= "\n说明：主机记录只填 <b>{$displayHost}</b>，系统会自动拼接域名 {$domain}（完整记录为 {$recordName}）。";
+        }
         return $message;
     }
 
-    private function getTxtHostDisplay(string $domain, string $recordName): string
+    private function getTxtHostDisplay(string $domain, string $recordName, string $certType = ''): string
     {
         $domain = trim($domain);
         $recordName = trim($recordName);
+
         if ($domain !== '' && $recordName !== '') {
-            $suffix = '.' . $domain;
+            $displayBaseDomain = $this->resolveTxtDisplayBaseDomain($domain, $certType);
+            $suffix = '.' . $displayBaseDomain;
             if (substr($recordName, -strlen($suffix)) === $suffix) {
                 $host = rtrim(substr($recordName, 0, -strlen($suffix)), '.');
                 if ($host !== '') {
@@ -1248,6 +1259,28 @@ class CertService
         }
 
         return $recordName !== '' ? $recordName : '_acme-challenge';
+    }
+
+    private function resolveTxtDisplayBaseDomain(string $domain, string $certType = ''): string
+    {
+        $domain = trim($domain);
+        if ($domain === '') {
+            return '';
+        }
+
+        // 通配符证书输入已限制为主域名，直接使用。
+        if ($certType === 'wildcard') {
+            return $domain;
+        }
+
+        // 单域名证书：为了便于复制，展示相对主域名的主机记录。
+        // 例如：www.example.com -> _acme-challenge.www
+        $labels = explode('.', $domain);
+        if (count($labels) <= 2) {
+            return $domain;
+        }
+
+        return implode('.', array_slice($labels, -2));
     }
 
     private function buildDownloadFilesMessage($order): string
@@ -1260,6 +1293,7 @@ class CertService
         $archiveUrl = $this->buildDownloadUrl($order, $archiveName);
         $message = "下载压缩包：点击下载 ({$archiveUrl})\n";
         $message .= "复制链接：\n<pre>{$archiveUrl}</pre>";
+        $message .= "\n\n部署提示：压缩包内已包含 <b>detail.txt</b>，请先按文档中的文件映射关系再部署，避免证书链或私钥文件放错。";
         return $message;
     }
 
@@ -1556,7 +1590,11 @@ class CertService
         $archivePath = $exportPath . $archiveName;
         if (@is_file($archivePath)) {
             $archiveMtime = @filemtime($archivePath);
-            if ($archiveMtime !== false && $archiveMtime >= $latestMtime) {
+            if (
+                $archiveMtime !== false
+                && $archiveMtime >= $latestMtime
+                && $this->archiveMatchesTargetLayout($archivePath)
+            ) {
                 return $archiveName;
             }
         }
@@ -1566,12 +1604,100 @@ class CertService
             return null;
         }
 
-        foreach ($files as $file) {
-            $zip->addFile($exportPath . $file, $file);
+        $compatibilityMap = [
+            'certificate.crt' => 'cert.cer',
+            'chain.crt' => 'ca.cer',
+            'fullchain.crt' => 'fullchain.cer',
+            'private.pem' => 'key.key',
+        ];
+        foreach ($compatibilityMap as $zipName => $sourceFile) {
+            $zip->addFile($exportPath . $sourceFile, $zipName);
         }
+
+        $publicPem = $this->buildPublicKeyPem($exportPath . 'cert.cer');
+        if ($publicPem === '') {
+            $publicPem = "# public key extract failed\n";
+        }
+        $zip->addFromString('public.pem', $publicPem);
+
+        $zip->addFromString('detail.txt', $this->buildCertificateBundleDetail());
 
         $zip->close();
         return $archiveName;
+    }
+
+    private function buildPublicKeyPem(string $certFile): string
+    {
+        if (!function_exists('openssl_pkey_get_public')) {
+            return '';
+        }
+
+        $certContent = @file_get_contents($certFile);
+        if ($certContent === false || $certContent === '') {
+            return '';
+        }
+
+        $public = @openssl_pkey_get_public($certContent);
+        if ($public === false) {
+            return '';
+        }
+
+        $details = openssl_pkey_get_details($public);
+        if (function_exists('openssl_pkey_free')) {
+            @openssl_pkey_free($public);
+        }
+
+        if (!is_array($details) || empty($details['key']) || !is_string($details['key'])) {
+            return '';
+        }
+
+        return $details['key'];
+    }
+
+    private function buildCertificateBundleDetail(): string
+    {
+        $lines = [
+            '综述',
+            '所有的证书文件都打包在ZIP压缩包文件里, 解压出来。里面的所有文件本质上都是文本, 可以通过文本编辑器(记事本, vscode, notepad, EditPlus, emeditor等等)直接读取打开。',
+            '主要文件',
+            '绝大部分的环境配置, 只需要用到以下两个文件即可。',
+            'private.pem：证书私钥, 可更改后缀为key。如果使用的是自己上传的CSR文件, 将不包含该文件。',
+            'fullchain.crt：完整的证书链, 可更改后缀为pem。文件里一般有两段证书(也会有三张), 一张是你的域名证书, 另一张是所依赖的证书链(可能会有两张证书链)。',
+            '其他文件',
+            'certificate.crt：单独的域名证书。',
+            'chain.crt：中间证书链(不含域名证书)。',
+            'public.pem：从证书提取出的公钥, 一般用于排障。',
+            'detail.txt：当前部署说明文件。',
+        ];
+
+        return implode("\n", $lines) . "\n";
+    }
+
+    private function archiveMatchesTargetLayout(string $archivePath): bool
+    {
+        $zip = new \ZipArchive();
+        if ($zip->open($archivePath) !== true) {
+            return false;
+        }
+
+        $required = ['certificate.crt', 'chain.crt', 'fullchain.crt', 'private.pem', 'public.pem', 'detail.txt'];
+        foreach ($required as $name) {
+            if ($zip->locateName($name) === false) {
+                $zip->close();
+                return false;
+            }
+        }
+
+        $forbidden = ['cert.cer', 'ca.cer', 'fullchain.cer', 'key.key'];
+        foreach ($forbidden as $name) {
+            if ($zip->locateName($name) !== false) {
+                $zip->close();
+                return false;
+            }
+        }
+
+        $zip->close();
+        return true;
     }
 
     private function getTxtValues($order): array
