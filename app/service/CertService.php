@@ -1622,22 +1622,6 @@ class CertService
 
         $zip->addFromString('detail.txt', $this->buildCertificateBundleDetail());
 
-        // 兼容更多面板的一键部署命名，降低用户手工改名出错概率。
-        $compatibilityMap = [
-            'certificate.crt' => 'cert.cer',
-            'chain.crt' => 'ca.cer',
-            'fullchain.crt' => 'fullchain.cer',
-            'private.pem' => 'key.key',
-        ];
-        foreach ($compatibilityMap as $zipName => $sourceFile) {
-            $zip->addFile($exportPath . $sourceFile, $zipName);
-        }
-
-        $publicPem = $this->buildPublicKeyPem($exportPath . 'cert.cer');
-        if ($publicPem !== '') {
-            $zip->addFromString('public.pem', $publicPem);
-        }
-
         $zip->addFromString('detail.txt', $this->buildCertificateBundleDetail());
 
         $zip->close();
