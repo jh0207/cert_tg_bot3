@@ -5,13 +5,30 @@ namespace app\service;
 class TelegramService
 {
     private string $token;
-    private string $apiBase;
+    /** @var string[] */
+    private array $apiBases;
 
     public function __construct()
     {
         $config = config('tg');
         $this->token = $config['token'];
-        $this->apiBase = rtrim($config['api_base'], '/');
+
+        $bases = [];
+        if (!empty($config['api_bases']) && is_array($config['api_bases'])) {
+            $bases = $config['api_bases'];
+        } elseif (!empty($config['api_base'])) {
+            $bases = [$config['api_base']];
+        }
+        $bases = array_values(array_filter(array_map(static function ($value) {
+            return rtrim((string) $value, '/');
+        }, $bases), static function ($value) {
+            return $value !== '';
+        }));
+        if ($bases === []) {
+            $bases = ['https://api.telegram.org'];
+        }
+
+        $this->apiBases = array_values(array_unique($bases));
     }
 
     public function sendMessage(int $chatId, string $text, ?array $inlineKeyboard = null, bool $disablePreview = true): void

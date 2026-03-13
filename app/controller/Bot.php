@@ -84,7 +84,6 @@ class Bot
                     $messageText .= "剩余申请次数：<b>{$quota}</b>\n\n";
                 }
                 $messageText .= "请选择操作👇";
-                $this->registerBotCommands();
                 $this->sendMainMenu($chatId, $messageText);
                 return;
             }
