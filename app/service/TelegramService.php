@@ -84,59 +84,81 @@ class TelegramService
 
     private function request(string $method, array $payload): void
     {
-        $url = $this->apiBase . '/bot' . $this->token . '/' . $method;
+        $payloadForLog = $this->sanitizePayloadForLog($payload);
 
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($payload));
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        $response = curl_exec($ch);
-        $curlErrNo = curl_errno($ch);
-        $curlError = curl_error($ch);
-        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        foreach ($this->apiBases as $index => $apiBase) {
+            $url = $apiBase . '/bot' . $this->token . '/' . $method;
 
-        if ($curlErrNo !== 0) {
-            $this->logDebug('telegram_request_curl_error', [
-                'method' => $method,
-                'curl_errno' => $curlErrNo,
-                'curl_error' => $curlError,
-                'payload' => $this->sanitizePayloadForLog($payload),
-            ]);
-            return;
-        }
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($payload));
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+            $response = curl_exec($ch);
+            $curlErrNo = curl_errno($ch);
+            $curlError = curl_error($ch);
+            $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
 
-        if (!is_string($response) || $response === '') {
-            $this->logDebug('telegram_request_empty_response', [
-                'method' => $method,
-                'http_code' => $httpCode,
-                'payload' => $this->sanitizePayloadForLog($payload),
-            ]);
-            return;
-        }
+            if ($curlErrNo !== 0) {
+                $this->logDebug('telegram_request_curl_error', [
+                    'method' => $method,
+                    'api_base' => $apiBase,
+                    'curl_errno' => $curlErrNo,
+                    'curl_error' => $curlError,
+                    'payload' => $payloadForLog,
+                ]);
+                continue;
+            }
 
-        $decoded = json_decode($response, true);
-        if (!is_array($decoded)) {
-            $this->logDebug('telegram_request_invalid_json', [
-                'method' => $method,
-                'http_code' => $httpCode,
-                'response' => $this->truncateText($response),
-                'payload' => $this->sanitizePayloadForLog($payload),
-            ]);
-            return;
-        }
+            if (!is_string($response) || $response === '') {
+                $this->logDebug('telegram_request_empty_response', [
+                    'method' => $method,
+                    'api_base' => $apiBase,
+                    'http_code' => $httpCode,
+                    'payload' => $payloadForLog,
+                ]);
+                continue;
+            }
 
-        if (($decoded['ok'] ?? false) !== true) {
+            $decoded = json_decode($response, true);
+            if (!is_array($decoded)) {
+                $this->logDebug('telegram_request_invalid_json', [
+                    'method' => $method,
+                    'api_base' => $apiBase,
+                    'http_code' => $httpCode,
+                    'response' => $this->truncateText($response),
+                    'payload' => $payloadForLog,
+                ]);
+                continue;
+            }
+
+            if (($decoded['ok'] ?? false) === true) {
+                if ($index > 0) {
+                    $this->logDebug('telegram_request_fallback_success', [
+                        'method' => $method,
+                        'api_base' => $apiBase,
+                    ]);
+                }
+                return;
+            }
+
             $this->logDebug('telegram_request_api_error', [
                 'method' => $method,
+                'api_base' => $apiBase,
                 'http_code' => $httpCode,
                 'error_code' => $decoded['error_code'] ?? null,
                 'description' => $decoded['description'] ?? '',
                 'response' => $this->truncateText($response),
-                'payload' => $this->sanitizePayloadForLog($payload),
+                'payload' => $payloadForLog,
             ]);
+
+            $errorCode = (int) ($decoded['error_code'] ?? 0);
+            if ($errorCode >= 400 && $errorCode < 500) {
+                return;
+            }
         }
     }
 
