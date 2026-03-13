@@ -42,7 +42,7 @@ class AuthService
             'first_name' => $from['first_name'] ?? '',
             'last_name' => $from['last_name'] ?? '',
             'role' => $role,
-            'apply_quota' => 1,
+            'apply_quota' => 0,
         ];
         TgUser::create($data);
 
