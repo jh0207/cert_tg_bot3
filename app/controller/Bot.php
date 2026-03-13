@@ -41,7 +41,7 @@ class Bot
             }
 
             $chatId = $message['chat']['id'] ?? null;
-            $text = trim($message['text'] ?? '');
+            $text = $this->normalizeIncomingText(trim($message['text'] ?? ''));
             if (!$chatId || $text === '') {
                 return;
             }
@@ -61,13 +61,13 @@ class Bot
                 $this->telegram->sendMessage($chatId, '🚫 你的账号已被封禁，请联系管理员。');
                 return;
             }
-            if ($text === '🆕 申请证书') {
+            if (in_array($text, ['🆕 申请证书', '🆕申请证书'], true)) {
                 $text = '/new';
-            } elseif ($text === '📂 我的订单') {
+            } elseif (in_array($text, ['📂 我的订单', '📂我的订单', '📂 订单记录'], true)) {
                 $text = '/orders';
-            } elseif ($text === '🔎 查询状态') {
+            } elseif (in_array($text, ['🔎 查询状态', '🔎查询状态'], true)) {
                 $text = '/status';
-            } elseif (in_array($text, ['📖 使用帮助', '使用帮助', '帮助'], true)) {
+            } elseif (in_array($text, ['📖 使用帮助', '📖使用帮助', '使用帮助', '帮助'], true)) {
                 $text = '/help';
             }
             if (strpos($text, '/help') === 0) {
@@ -781,6 +781,17 @@ class Bot
         ]);
     }
 
+    private function normalizeIncomingText(string $text): string
+    {
+        $normalized = preg_replace('/[\x{FE0F}\x{200B}\x{FEFF}]/u', '', $text);
+        return is_string($normalized) ? trim($normalized) : trim($text);
+    }
+
+    private function isBypassPendingCommand(string $text): bool
+    {
+        return preg_match('/^\/(help|start|new|orders|status)(?:@[A-Za-z0-9_]+)?(?:\s|$)/u', $text) === 1;
+    }
+
     private function extractCommandArgument(string $text, string $command): ?string
     {
         if (strpos($text, $command) !== 0) {
@@ -909,7 +920,7 @@ class Bot
             return false;
         }
 
-        if (in_array($text, ['/help', '/start', '/new', '/orders', '/status'], true)) {
+        if ($this->isBypassPendingCommand($text)) {
             return false;
         }
 
