@@ -909,7 +909,7 @@ class Bot
             return false;
         }
 
-        if (in_array($text, ['/help', '/start'], true)) {
+        if (in_array($text, ['/help', '/start', '/new', '/orders', '/status'], true)) {
             return false;
         }
 
