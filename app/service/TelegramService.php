@@ -95,6 +95,7 @@ class TelegramService
             curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($payload));
             curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
             curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
             $response = curl_exec($ch);
             $curlErrNo = curl_errno($ch);
             $curlError = curl_error($ch);
