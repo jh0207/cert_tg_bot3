@@ -1604,23 +1604,17 @@ class CertService
             return null;
         }
 
-        $compatibilityMap = [
-            'certificate.crt' => 'cert.cer',
-            'chain.crt' => 'ca.cer',
-            'fullchain.crt' => 'fullchain.cer',
-            'private.pem' => 'key.key',
-        ];
-        foreach ($compatibilityMap as $zipName => $sourceFile) {
-            $zip->addFile($exportPath . $sourceFile, $zipName);
-        }
+        $zip->addFile($exportPath . 'cert.cer', 'certificate.crt');
+        $zip->addFile($exportPath . 'ca.cer', 'chain.crt');
+        $zip->addFromString('detail.txt', $this->buildCertificateBundleDetail());
+        $zip->addFile($exportPath . 'fullchain.cer', 'fullchain.crt');
+        $zip->addFile($exportPath . 'key.key', 'private.pem');
 
         $publicPem = $this->buildPublicKeyPem($exportPath . 'cert.cer');
         if ($publicPem === '') {
             $publicPem = "# public key extract failed\n";
         }
         $zip->addFromString('public.pem', $publicPem);
-
-        $zip->addFromString('detail.txt', $this->buildCertificateBundleDetail());
 
         $zip->close();
         return $archiveName;
