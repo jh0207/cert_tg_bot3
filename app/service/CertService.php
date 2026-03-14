@@ -600,6 +600,8 @@ class CertService
             return ['success' => false, 'message' => '❌ 订单不存在。'];
         }
 
+        $order = $this->advanceOrderOnStatusRefresh($order);
+
         $message = $this->buildOrderStatusMessage($order, false);
         if (!in_array($order['status'], ['dns_wait', 'issued'], true)) {
             $message .= "\n\n⚠️ 该订单尚未完成，请继续下一步或取消订单。";
@@ -614,8 +616,18 @@ class CertService
             ->where('tg_user_id', $userId)
             ->find();
         if (!$order) {
+            $latest = CertOrder::where('tg_user_id', $userId)
+                ->order('id', 'desc')
+                ->find();
+            if ($latest) {
+                $message = "⚠️ 当前按钮对应的旧订单已变更，已为你切换到最新订单。\n\n";
+                $message .= $this->buildOrderStatusMessage($latest, false);
+                return ['success' => true, 'message' => $message, 'order' => $latest];
+            }
             return ['success' => false, 'message' => '❌ 订单不存在。'];
         }
+
+        $order = $this->advanceOrderOnStatusRefresh($order);
 
         $message = $this->buildOrderStatusMessage($order, false);
         return ['success' => true, 'message' => $message, 'order' => $order];
@@ -644,7 +656,53 @@ class CertService
             return ['success' => false, 'message' => '❌ 订单不存在。'];
         }
 
+        $order = $this->advanceOrderOnStatusRefresh($order);
+
         return ['success' => true, 'message' => $this->buildOrderStatusMessage($order, false)];
+    }
+
+    private function advanceOrderOnStatusRefresh(CertOrder $order): CertOrder
+    {
+        if ($order['status'] === 'created' && (int) ($order['need_dns_generate'] ?? 0) === 1) {
+            $this->processDnsGenerationOrder($order);
+        } elseif ($order['status'] === 'dns_verified' && (int) ($order['need_issue'] ?? 0) === 1) {
+            $this->processIssueOrder($order);
+        } elseif ($order['status'] === 'issued' && (int) ($order['need_install'] ?? 0) === 1) {
+            $this->processInstallOrderOnStatusRefresh($order);
+        }
+
+        $latest = CertOrder::where('id', $order['id'])->find();
+        return $latest ?: $order;
+    }
+
+    private function processInstallOrderOnStatusRefresh(CertOrder $order): void
+    {
+        $this->logDebug('acme_reinstall_start', ['domain' => $order['domain'], 'order_id' => $order['id']]);
+        try {
+            $install = $this->acme->installCert($order['domain'], $this->getOrderExportPath($order));
+        } catch (\Throwable $e) {
+            $this->logDebug('acme_reinstall_exception', ['error' => $e->getMessage(), 'order_id' => $order['id']]);
+            $this->recordAcmeFailure($order, $e->getMessage(), [
+                'acme_output' => $e->getMessage(),
+            ]);
+            return;
+        }
+
+        $installStderr = $install['stderr'] ?? '';
+        $installOutput = $install['output'] ?? '';
+        if (!($install['success'] ?? false)) {
+            $this->recordAcmeFailure($order, $this->resolveAcmeError($installStderr, $installOutput), [
+                'acme_output' => $installOutput,
+            ]);
+            return;
+        }
+
+        $order->save([
+            'need_install' => 0,
+            'retry_count' => 0,
+            'last_error' => '',
+            'acme_output' => $installOutput,
+        ]);
     }
 
     public function listOrders(array $from): array
@@ -1445,23 +1503,27 @@ class CertService
 
         $this->log($order['tg_user_id'], 'order_existing_cert', $order['domain']);
         $this->acme->removeOrder($order['domain']);
-        $domain = $order['domain'];
-        $certType = $order['cert_type'];
-        $order->delete();
 
         $user = TgUser::where('id', $order['tg_user_id'])->find();
         if (!$user) {
             return;
         }
 
-        $newOrder = CertOrder::create([
-            'tg_user_id' => $order['tg_user_id'],
-            'domain' => $domain,
-            'cert_type' => $certType,
+        $order->save([
             'status' => 'created',
+            'last_error' => '',
+            'acme_output' => $acmeOutput,
+            'need_dns_generate' => 0,
+            'need_issue' => 0,
+            'need_install' => 0,
+            'retry_count' => 0,
+            'txt_host' => '',
+            'txt_value' => '',
+            'txt_values_json' => '',
         ]);
-        $this->log($order['tg_user_id'], 'order_recreate', $domain);
-        $this->issueOrder($user, $newOrder);
+
+        $this->log($order['tg_user_id'], 'order_recreate', $order['domain']);
+        $this->issueOrder($user, $order);
     }
 
     private function cleanupFailedOrder(CertOrder $order): bool
