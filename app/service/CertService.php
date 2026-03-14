@@ -606,6 +606,14 @@ class CertService
             ->where('tg_user_id', $userId)
             ->find();
         if (!$order) {
+            $latest = CertOrder::where('tg_user_id', $userId)
+                ->order('id', 'desc')
+                ->find();
+            if ($latest) {
+                $message = "⚠️ 当前按钮对应的旧订单已变更，已为你切换到最新订单。\n\n";
+                $message .= $this->buildOrderStatusMessage($latest, false);
+                return ['success' => true, 'message' => $message, 'order' => $latest];
+            }
             return ['success' => false, 'message' => '❌ 订单不存在。'];
         }
 
@@ -1485,23 +1493,27 @@ class CertService
 
         $this->log($order['tg_user_id'], 'order_existing_cert', $order['domain']);
         $this->acme->removeOrder($order['domain']);
-        $domain = $order['domain'];
-        $certType = $order['cert_type'];
-        $order->delete();
 
         $user = TgUser::where('id', $order['tg_user_id'])->find();
         if (!$user) {
             return;
         }
 
-        $newOrder = CertOrder::create([
-            'tg_user_id' => $order['tg_user_id'],
-            'domain' => $domain,
-            'cert_type' => $certType,
+        $order->save([
             'status' => 'created',
+            'last_error' => '',
+            'acme_output' => $acmeOutput,
+            'need_dns_generate' => 0,
+            'need_issue' => 0,
+            'need_install' => 0,
+            'retry_count' => 0,
+            'txt_host' => '',
+            'txt_value' => '',
+            'txt_values_json' => '',
         ]);
-        $this->log($order['tg_user_id'], 'order_recreate', $domain);
-        $this->issueOrder($user, $newOrder);
+
+        $this->log($order['tg_user_id'], 'order_recreate', $order['domain']);
+        $this->issueOrder($user, $order);
     }
 
     private function cleanupFailedOrder(CertOrder $order): bool
