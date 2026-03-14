@@ -600,6 +600,8 @@ class CertService
             return ['success' => false, 'message' => '❌ 订单不存在。'];
         }
 
+        $order = $this->advanceOrderOnStatusRefresh($order);
+
         $message = $this->buildOrderStatusMessage($order, false);
         if (!in_array($order['status'], ['dns_wait', 'issued'], true)) {
             $message .= "\n\n⚠️ 该订单尚未完成，请继续下一步或取消订单。";
@@ -616,6 +618,8 @@ class CertService
         if (!$order) {
             return ['success' => false, 'message' => '❌ 订单不存在。'];
         }
+
+        $order = $this->advanceOrderOnStatusRefresh($order);
 
         $message = $this->buildOrderStatusMessage($order, false);
         return ['success' => true, 'message' => $message, 'order' => $order];
@@ -644,7 +648,53 @@ class CertService
             return ['success' => false, 'message' => '❌ 订单不存在。'];
         }
 
+        $order = $this->advanceOrderOnStatusRefresh($order);
+
         return ['success' => true, 'message' => $this->buildOrderStatusMessage($order, false)];
+    }
+
+    private function advanceOrderOnStatusRefresh(CertOrder $order): CertOrder
+    {
+        if ($order['status'] === 'created' && (int) ($order['need_dns_generate'] ?? 0) === 1) {
+            $this->processDnsGenerationOrder($order);
+        } elseif ($order['status'] === 'dns_verified' && (int) ($order['need_issue'] ?? 0) === 1) {
+            $this->processIssueOrder($order);
+        } elseif ($order['status'] === 'issued' && (int) ($order['need_install'] ?? 0) === 1) {
+            $this->processInstallOrderOnStatusRefresh($order);
+        }
+
+        $latest = CertOrder::where('id', $order['id'])->find();
+        return $latest ?: $order;
+    }
+
+    private function processInstallOrderOnStatusRefresh(CertOrder $order): void
+    {
+        $this->logDebug('acme_reinstall_start', ['domain' => $order['domain'], 'order_id' => $order['id']]);
+        try {
+            $install = $this->acme->installCert($order['domain'], $this->getOrderExportPath($order));
+        } catch (\Throwable $e) {
+            $this->logDebug('acme_reinstall_exception', ['error' => $e->getMessage(), 'order_id' => $order['id']]);
+            $this->recordAcmeFailure($order, $e->getMessage(), [
+                'acme_output' => $e->getMessage(),
+            ]);
+            return;
+        }
+
+        $installStderr = $install['stderr'] ?? '';
+        $installOutput = $install['output'] ?? '';
+        if (!($install['success'] ?? false)) {
+            $this->recordAcmeFailure($order, $this->resolveAcmeError($installStderr, $installOutput), [
+                'acme_output' => $installOutput,
+            ]);
+            return;
+        }
+
+        $order->save([
+            'need_install' => 0,
+            'retry_count' => 0,
+            'last_error' => '',
+            'acme_output' => $installOutput,
+        ]);
     }
 
     public function listOrders(array $from): array
