@@ -467,15 +467,12 @@ class CertService
 
         $this->log($user['id'], 'order_create', $domain);
 
+        // 生产场景下提交域名后需要尽快返回 TXT 记录，先在当前请求中尝试一次生成。
+        // 失败时仍保留队列标记，由 cron 继续重试，避免阻塞到不可恢复。
         $this->processDnsGenerationOrder($order);
+
         $latest = CertOrder::where('id', $order['id'])->find();
-        if (!$latest) {
-            $latest = CertOrder::where('tg_user_id', $user['id'])
-                ->where('domain', $domain)
-                ->order('id', 'desc')
-                ->find();
-        }
-        if ($latest && in_array($latest['status'], ['dns_wait', 'issued', 'failed', 'created'], true)) {
+        if ($latest) {
             return [
                 'success' => true,
                 'message' => $this->buildOrderStatusMessage($latest, true),
@@ -485,7 +482,7 @@ class CertService
 
         return [
             'success' => true,
-            'message' => '⏳ 正在生成 DNS TXT 记录，请稍候…',
+            'message' => '⏳ DNS 记录生成任务已提交，请稍后刷新状态。',
             'order' => $order,
         ];
     }
@@ -558,14 +555,7 @@ class CertService
                 'need_issue' => 1,
                 'retry_count' => 0,
             ]);
-            $this->processIssueOrder($order);
             $latest = CertOrder::where('id', $order['id'])->find();
-            if (!$latest) {
-                $latest = CertOrder::where('tg_user_id', $userId)
-                    ->where('domain', $order['domain'])
-                    ->order('id', 'desc')
-                    ->find();
-            }
             if ($latest) {
                 $latestOrder = $latest->toArray();
                 return [
@@ -575,7 +565,7 @@ class CertService
                 ];
             }
             $message = "✅ <b>状态：dns_verified（DNS 已验证）</b>\n";
-            $message .= "正在签发，请稍候查看状态。";
+            $message .= "签发任务已提交，请稍后刷新状态。";
             return ['success' => true, 'message' => $message, 'order' => $order];
         }
         return ['success' => true, 'message' => '⏳ 正在签发，请稍后查看状态。', 'order' => $order];
