@@ -38,6 +38,9 @@ CREATE TABLE `cert_orders` (
   `updated_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
   INDEX `idx_domain_user` (`domain`, `tg_user_id`),
+  INDEX `idx_status_dns_generate` (`status`, `need_dns_generate`, `id`),
+  INDEX `idx_status_issue` (`status`, `need_issue`, `id`),
+  INDEX `idx_status_install` (`status`, `need_install`, `id`),
   CONSTRAINT `fk_cert_user` FOREIGN KEY (`tg_user_id`) REFERENCES `tg_users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

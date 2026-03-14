@@ -15,5 +15,10 @@ ALTER TABLE `cert_orders`
 ALTER TABLE `cert_orders`
   MODIFY COLUMN `status` ENUM('created','dns_wait','dns_verified','issued','failed') NOT NULL DEFAULT 'created';
 
+ALTER TABLE `cert_orders`
+  ADD INDEX IF NOT EXISTS `idx_status_dns_generate` (`status`, `need_dns_generate`, `id`),
+  ADD INDEX IF NOT EXISTS `idx_status_issue` (`status`, `need_issue`, `id`),
+  ADD INDEX IF NOT EXISTS `idx_status_install` (`status`, `need_install`, `id`);
+
 ALTER TABLE `tg_users`
   MODIFY COLUMN `apply_quota` INT UNSIGNED NOT NULL DEFAULT 0;
