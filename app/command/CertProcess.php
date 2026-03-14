@@ -47,15 +47,13 @@ class CertProcess extends Command
     {
         $lockDir = runtime_path();
         if (!is_dir($lockDir) && !@mkdir($lockDir, 0755, true) && !is_dir($lockDir)) {
-            // 锁目录不可用时降级为无锁执行，避免任务队列完全停摆。
-            return true;
+            return false;
         }
 
         $lockFile = rtrim($lockDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'cert_process.lock';
         $handle = @fopen($lockFile, 'c+');
         if (!$handle) {
-            // 无法创建锁文件时降级为无锁执行，避免任务队列完全停摆。
-            return true;
+            return false;
         }
 
         if (!@flock($handle, LOCK_EX | LOCK_NB)) {
