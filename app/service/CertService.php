@@ -467,6 +467,10 @@ class CertService
 
         $this->log($user['id'], 'order_create', $domain);
 
+        // 生产场景下提交域名后需要尽快返回 TXT 记录，先在当前请求中尝试一次生成。
+        // 失败时仍保留队列标记，由 cron 继续重试，避免阻塞到不可恢复。
+        $this->processDnsGenerationOrder($order);
+
         $latest = CertOrder::where('id', $order['id'])->find();
         if ($latest) {
             return [
